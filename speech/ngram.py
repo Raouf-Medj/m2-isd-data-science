@@ -46,6 +46,9 @@ class NGramLM:
                 for i in range(len(padded) - n + 1):
                     ngram = tuple(padded[i:i + n])
 
+                    # BOS is a context token, never a predicted token
+                    if ngram[-1] == BOS:
+                        continue
                     # Count the n-gram
                     self.counts[n][ngram] += 1
 
@@ -60,7 +63,8 @@ class NGramLM:
         """P(word | last N-1 tokens of history). history may contain BOS tokens."""
         V = len(self.vocab)
         N = self.order
-
+        history = [BOS] * max(0, N - 1 - len(history)) + list(history)
+        history = history[-(N - 1):] if N > 1 else []
         # Add-k estimate for a given order
         def add_k(n):
             context_size = n - 1
@@ -73,28 +77,33 @@ class NGramLM:
 
             return (count + self.k) / (context_count + self.k * V)
 
+        def prob_without_k(n):
+            context_size = n - 1
+
+            h = tuple(history[-context_size:]) if context_size > 0 else ()
+            ngram = h + (word,)
+
+            count = self.counts[n][ngram]
+            context_count = self.context[n][h]
+
+            return (count) / (context_count)
+
+
         if self.smoothing == "add-k" and self.k > 0:
             return add_k(N)
+                    
 
-        elif self.smoothing == "interpolated" and self.k > 0:
+        elif self.smoothing == "interpolated":
             # self.lambdas is ordered from N down to 1
             return sum(
                 self.lambdas[N - n] * add_k(n)
                 for n in range(N, 0, -1)
             )
         
-
         else:
-            print(self.counts)
-            print(self.context)
-            context_size = N - 1
-            
-            h = tuple(history[-context_size:]) if context_size > 0 else ()
-            ngram = h + (word,)
+            return prob_without_k(N)
 
-            count = self.counts[N][ngram]
-            context_count = self.context[N][h]
-            return (count) / (context_count)
+            
 
         
     def sentence_logprob(self, sentence: list[str]) -> float:
