@@ -28,14 +28,75 @@ class NGramLM:
     def fit(self, sentences: list[list[str]], vocab: list[str]):
         """Count n-grams of every order 1..N. Each sentence is padded with N-1 BOS and one EOS.
         self.counts[n][ngram_tuple] = count, self.context[n][history_tuple] = count (n = 1..N)."""
-        self.vocab = list(vocab) + [EOS]  # predictable symbols
-        raise NotImplementedError("TODO(d1): count n-grams of every order 1..N on sentences padded with N-1 '<s>' and one '</s>'; fill self.counts[n] and self.context[n] (Counters keyed by tuples)")
+        self.vocab = list(vocab) + [EOS]
+
+        self.counts = {
+            n: Counter() for n in range(1, self.order + 1)
+        }
+        self.context = {
+            n: Counter() for n in range(1, self.order + 1)
+        }
+
+        for sentence in sentences:
+            # Pad sentence with N-1 BOS tokens and one EOS token
+            padded = [BOS] * (self.order - 1) + list(sentence) + [EOS]
+
+            # Count n-grams of every order
+            for n in range(1, self.order + 1):
+                for i in range(len(padded) - n + 1):
+                    ngram = tuple(padded[i:i + n])
+
+                    # Count the n-gram
+                    self.counts[n][ngram] += 1
+
+                    # Count its history (context)
+
+                    history = ngram[:-1]
+                    self.context[n][history] += 1
+
         return self
 
     def prob(self, word: str, history: list[str]) -> float:
         """P(word | last N-1 tokens of history). history may contain BOS tokens."""
-        raise NotImplementedError("TODO(d1): 'add-k' smooths the order-N estimate (count+k)/(context+k|V|); 'interpolated' mixes the add-k estimates of orders N..1 with self.lambdas (Jelinek-Mercer)")
+        V = len(self.vocab)
+        N = self.order
 
+        # Add-k estimate for a given order
+        def add_k(n):
+            context_size = n - 1
+
+            h = tuple(history[-context_size:]) if context_size > 0 else ()
+            ngram = h + (word,)
+
+            count = self.counts[n][ngram]
+            context_count = self.context[n][h]
+
+            return (count + self.k) / (context_count + self.k * V)
+
+        if self.smoothing == "add-k" and self.k > 0:
+            return add_k(N)
+
+        elif self.smoothing == "interpolated" and self.k > 0:
+            # self.lambdas is ordered from N down to 1
+            return sum(
+                self.lambdas[N - n] * add_k(n)
+                for n in range(N, 0, -1)
+            )
+        
+
+        else:
+            print(self.counts)
+            print(self.context)
+            context_size = N - 1
+            
+            h = tuple(history[-context_size:]) if context_size > 0 else ()
+            ngram = h + (word,)
+
+            count = self.counts[N][ngram]
+            context_count = self.context[N][h]
+            return (count) / (context_count)
+
+        
     def sentence_logprob(self, sentence: list[str]) -> float:
         hist, lp = [], 0.0
         for w in list(sentence) + [EOS]:
@@ -45,8 +106,34 @@ class NGramLM:
 
     def perplexity(self, sentences: list[list[str]]) -> float:
         """exp(-(sum of log P) / number of predicted tokens), EOS included."""
-        raise NotImplementedError("TODO(d1): exp of minus the average log-probability per predicted token (each sentence predicts its words and EOS)")
 
+        total_log_prob = 0.0
+        total_tokens = 0
+
+        for sentence in sentences:
+            # Add N-1 BOS tokens to initialize the history
+            history = [BOS] * (self.order - 1)
+
+            # Predict every word, then EOS
+            for word in list(sentence) + [EOS]:
+                p = self.prob(word, history)
+
+                # Avoid log(0)
+                if p <= 0:
+                    return float("inf")
+
+                total_log_prob += math.log(p)
+                total_tokens += 1
+
+                # Update history with the predicted word
+                history.append(word)
+
+        if total_tokens == 0:
+            return float("inf")
+
+        return math.exp(-total_log_prob / total_tokens)
+
+    
     @property
     def n_entries(self) -> int:
         return sum(len(c) for c in self.counts.values())
