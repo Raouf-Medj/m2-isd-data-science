@@ -19,8 +19,59 @@ def _to_minimisation(values: np.ndarray, directions: list[str]) -> np.ndarray:
 
 
 def pareto_mask_array(values: np.ndarray, directions: list[str]) -> np.ndarray:
-    """True for non-dominated rows. O(n^2), fine for the few hundred configs of a course."""
-    raise NotImplementedError("TODO(d1): return a boolean mask of non-dominated rows (each objective 'min' or 'max'); keep exact duplicates; see test_pareto.py")
+    """
+    Return a boolean mask identifying non-dominated rows (True).
+
+    A row is non-dominated if no other row is at least as good
+    in every objective and strictly better in at least one.
+
+    Supports any number of objectives, each with direction 'min' or 'max'.
+    Exact duplicates are kept.
+
+    Complexity: O(n^2 * m), where:
+        n = number of configurations
+        m = number of objectives
+    """
+
+    values = np.asarray(values, dtype=float)
+
+    if values.ndim != 2:
+        raise ValueError("values must be a 2D array")
+
+    n, m = values.shape
+
+    if len(directions) != m:
+        raise ValueError(
+            f"Expected {m} directions, got {len(directions)}"
+        )
+
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+
+    # Convert all objectives into minimization objectives.
+    v = _to_minimisation(values, directions)
+
+    # Initially, assume every row is non-dominated.
+    mask = np.ones(n, dtype=bool)
+
+    # Compare every configuration against every other configuration.
+    for i in range(n):
+
+        # Check whether another point dominates point i.
+        better_or_equal = np.all(v <= v[i], axis=1)
+
+        strictly_better = np.any(v < v[i], axis=1)
+
+        dominates_i = better_or_equal & strictly_better
+
+        # A point cannot dominate itself.
+        dominates_i[i] = False
+
+        # If at least one point dominates i, mark it as dominated.
+        if np.any(dominates_i):
+            mask[i] = False
+
+    return mask
 
 
 def pareto_mask(df, objectives: dict[str, str]) -> np.ndarray:
