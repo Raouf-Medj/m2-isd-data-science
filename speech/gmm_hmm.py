@@ -219,7 +219,51 @@ class WordLoopDecoder:
 
     def decode_emissions(self, B: np.ndarray, drop: tuple = ("sil",)) -> list[str]:
         """Viterbi on precomputed emissions (lets you sweep LM weights without recomputing GMMs)."""
-        raise NotImplementedError("TODO(d1): log-domain Viterbi over the composite HMM, end in a word-final state, backtrack, cut words at entry transitions, drop silence")
+        T, S = B.shape
+
+        if T == 0:
+            return []
+
+        # 1. Initialisation: probability of starting in each state
+        delta = self.log_start + B[0]
+
+        # Store the best previous state for each state and frame
+        backpointer = np.zeros((T, S), dtype=np.int32)
+
+        # 2. Viterbi recurrence
+        for t in range(1, T):
+            scores = delta[:, None] + self.logA
+
+            backpointer[t] = np.argmax(scores, axis=0)
+
+            delta = np.max(scores, axis=0) + B[t]
+
+        # 3. Select the best final state (must be a word-final state)
+        final_scores = delta[self.final_states]
+        best_state = self.final_states[np.argmax(final_scores)]
+
+        if not np.isfinite(final_scores.max()):
+            return []
+
+        # 4. Backtracking: reconstruct the optimal state sequence
+        path = np.zeros(T, dtype=np.int32)
+        path[-1] = best_state
+
+        for t in range(T - 1, 0, -1):
+            path[t - 1] = backpointer[t, path[t]]
+
+        # 5. Recover words using entry transitions
+        words = [self.word_of_state[path[0]]]
+
+        for t in range(1, T):
+            previous_state = path[t - 1]
+            current_state = path[t]
+
+            if self.entry[previous_state, current_state]:
+                words.append(self.word_of_state[current_state])
+
+        # 6. Remove silence tokens
+        return [w for w in words if w not in drop]
 
 
 # --------------------------------------------------------------------------- #
