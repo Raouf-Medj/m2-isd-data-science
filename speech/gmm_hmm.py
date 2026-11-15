@@ -288,25 +288,36 @@ def train_bigram(sentences: list[list[str]], vocab: list[str], k: float = 0.1,
     if k <= 0:
         raise ValueError("k must be strictly positive")
 
-    has_sil = sil_token is not None and sil_token in vocab
+    # The text corpus usually has no silence, but the decoder's vocabulary does:
+    # silence is added to the LM whether or not it appears in ``vocab``.
+    has_sil = sil_token is not None
     if has_sil and not 0.0 <= p_sil <= 1.0:
         raise ValueError("p_sil must be between 0 and 1")
 
-    contexts = ["<s>"] + list(vocab)
-    targets = [w for w in vocab if not (has_sil and w == sil_token)]
-    counts = {u: {v: 0 for v in vocab} for u in contexts}
+    targets = [w for w in vocab if not (has_sil and w == sil_token)]   # lexical words
+    contexts = ["<s>"] + targets + ([sil_token] if has_sil else [])
+    counts = {u: {v: 0 for v in targets} for u in contexts}
 
     # Count sentence-initial and within-sentence bigrams. Do not add an
     # end-of-sentence token: the decoder predicts only vocabulary tokens.
-    vocab_set = set(vocab)
+    # Silence tokens in the text are skipped so they do not distort lexical counts.
+    vocab_set = set(vocab) | ({sil_token} if has_sil else set())
     for sentence in sentences:
         unknown = set(sentence) - vocab_set
         if unknown:
             raise ValueError(f"sentence contains tokens outside vocab: {sorted(unknown)}")
         previous = "<s>"
         for word in sentence:
+            if has_sil and word == sil_token:
+                continue
             counts[previous][word] += 1
             previous = word
+
+    # After a silence the previous word is unknown to a bigram: use how often
+    # each word occurs as a successor (its unigram frequency).
+    if has_sil:
+        for v in targets:
+            counts[sil_token][v] = sum(counts[u][v] for u in contexts if u != sil_token)
 
     bigram = {}
     for u in contexts:
@@ -318,9 +329,9 @@ def train_bigram(sentences: list[list[str]], vocab: list[str], k: float = 0.1,
                 lexical_probs = smoothed / smoothed.sum() * (1.0 - p_sil)
                 row.update({v: float(prob) for v, prob in zip(targets, lexical_probs)})
         else:
-            smoothed = np.array([counts[u][v] + k for v in vocab], dtype=float)
+            smoothed = np.array([counts[u][v] + k for v in targets], dtype=float)
             probs = smoothed / smoothed.sum()
-            row.update({v: float(prob) for v, prob in zip(vocab, probs)})
+            row.update({v: float(prob) for v, prob in zip(targets, probs)})
 
         # Keep each row normalized despite floating-point rounding.
         total = sum(row.values())

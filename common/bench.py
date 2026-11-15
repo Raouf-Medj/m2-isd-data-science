@@ -16,8 +16,12 @@ from __future__ import annotations
 import json
 import os
 import platform
-import resource
 import time
+
+try:  # Unix only; on Windows peak memory comes from psutil (if installed)
+    import resource
+except ImportError:
+    resource = None
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -153,7 +157,16 @@ def time_calls(fn: Callable[[Any], Any], inputs: list, warmup: int = 3) -> tuple
 
 
 def peak_memory_mb() -> dict:
-    out = {"cpu_maxrss_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0}
+    out = {}
+    if resource is not None:
+        out["cpu_maxrss_mb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+    else:
+        try:
+            import psutil
+            mi = psutil.Process().memory_info()
+            out["cpu_maxrss_mb"] = getattr(mi, "peak_wset", mi.rss) / 2**20
+        except ImportError:
+            pass
     torch = _torch()
     if torch is not None and torch.cuda.is_available():
         out["gpu_peak_mb"] = torch.cuda.max_memory_allocated() / 2**20
