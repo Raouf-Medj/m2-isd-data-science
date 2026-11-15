@@ -139,7 +139,7 @@ class SherpaZipformer(Backend):
         import sherpa_onnx
         d = MODELS / folder
         if not (d / "tokens.txt").exists():
-            raise FileNotFoundError(f"{d} not found: run `bash scripts/fetch_data.sh data` (downloads the model)")
+            raise FileNotFoundError(f"{d} not found: run `python scripts/fetch_data.py data` (downloads the model)")
         q = ".int8" if int8 else ""
         f = lambda part: str(next(d.glob(f"{part}-*{q}.onnx")))  # noqa: E731
         if not int8:

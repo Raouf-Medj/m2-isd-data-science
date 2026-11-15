@@ -9,7 +9,7 @@
 An entry that reaches one of YOUR stubs says which one when you select it: implement it, then restart the server.
 Entries 0-2 expect ONE digit per recording; entries 3-4 a digit string (short pauses between digits help).
 
-Training data: FSDD (`bash scripts/fetch_data.sh data`, or DSP_FSDD=<folder of wav>), official split (files 5-49
+Training data: FSDD (`python scripts/fetch_data.py data`, or DSP_FSDD=<folder of wav>), official split (files 5-49
 of each speaker). Models are trained on first use with the provided code, exactly as
 `run_classical_baseline --part isolated --split standard` does, and cached as results/speech_classical/gmm_S<s>M<m>.pkl
 (the files your experiments write are reused). The bigram LM is trained on 5000 strings of a synthetic grammar in
@@ -48,7 +48,7 @@ def training_data():
     """(training files, per-word normalised training features, global normaliser), as in --part isolated."""
     from speech import run_classical_baseline as R
     if not any(FSDD.glob("*.wav")):
-        raise FileNotFoundError(f"no FSDD recordings in {FSDD}: run `bash scripts/fetch_data.sh data` "
+        raise FileNotFoundError(f"no FSDD recordings in {FSDD}: run `python scripts/fetch_data.py data` "
                                 "(or set DSP_FSDD to the folder of wav files)")
     rng = np.random.default_rng(0)  # same seed and order of draws as run_classical_baseline
     data, sil_gaps = R.prepare(SimpleNamespace(fsdd=FSDD), rng)

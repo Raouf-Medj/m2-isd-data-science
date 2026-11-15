@@ -95,7 +95,7 @@ async def ws_endpoint(ws: WebSocket):
                 REC.mkdir(parents=True, exist_ok=True)
                 sf.write(REC / f"{rid}.wav", y, 16000)
                 if reference:
-                    (REC / f"{rid}.txt").write_text(reference)
+                    (REC / f"{rid}.txt").write_text(reference, encoding="utf-8")
                 m = summarise(name, backend.streaming, y, 16000, compute, first_partial, (done - t_stop) * 1000,
                               n_partials, final, reference, load_ms)
                 m["recording"] = rid
@@ -146,7 +146,7 @@ async def replay(req: ReplayRequest):
     """Same saved audio, another backend: the only fair way to compare backends qualitatively."""
     y, sr = sf.read(REC / f"{req.recording}.wav", dtype="float32")
     ref_f = REC / f"{req.recording}.txt"
-    reference = ref_f.read_text() if ref_f.exists() else ""
+    reference = ref_f.read_text(encoding="utf-8") if ref_f.exists() else ""
     try:
         backend = await asyncio.to_thread(backends.get, req.backend)
     except backends.BackendUnavailable as e:
