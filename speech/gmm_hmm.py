@@ -266,9 +266,64 @@ class WordLoopDecoder:
         return [w for w in words if w not in drop]
 
 
-# --------------------------------------------------------------------------- #
-# Bigram LM with add-k smoothing
-# --------------------------------------------------------------------------- #
 def train_bigram(sentences: list[list[str]], vocab: list[str], k: float = 0.1,
                  sil_token: str | None = "sil", p_sil: float = 0.15) -> dict:
-    raise NotImplementedError("TODO(d1): add-k bigram P(v|u) with <s>; silence handled as documented; every row must sum to 1")
+    """Estimate a bigram LM with add-k smoothing.
+
+    Returns ``P[next_word | previous_word]`` for every previous word in
+    ``["<s>"] + vocab``.  ``<s>`` is used only as a sentence-start context.
+
+    If ``sil_token`` is in the vocabulary, silence receives the fixed
+    probability ``p_sil`` in every row.  The remaining probability mass is
+    distributed over the non-silence vocabulary according to add-k-smoothed
+    bigram counts.  Silence is therefore not allowed to distort the lexical
+    bigram estimates.
+    """
+    if not vocab:
+        raise ValueError("vocab must contain at least one token")
+    if len(set(vocab)) != len(vocab):
+        raise ValueError("vocab must not contain duplicate tokens")
+    if "<s>" in vocab:
+        raise ValueError("'<s>' is reserved for the sentence-start context")
+    if k <= 0:
+        raise ValueError("k must be strictly positive")
+
+    has_sil = sil_token is not None and sil_token in vocab
+    if has_sil and not 0.0 <= p_sil <= 1.0:
+        raise ValueError("p_sil must be between 0 and 1")
+
+    contexts = ["<s>"] + list(vocab)
+    targets = [w for w in vocab if not (has_sil and w == sil_token)]
+    counts = {u: {v: 0 for v in vocab} for u in contexts}
+
+    # Count sentence-initial and within-sentence bigrams. Do not add an
+    # end-of-sentence token: the decoder predicts only vocabulary tokens.
+    vocab_set = set(vocab)
+    for sentence in sentences:
+        unknown = set(sentence) - vocab_set
+        if unknown:
+            raise ValueError(f"sentence contains tokens outside vocab: {sorted(unknown)}")
+        previous = "<s>"
+        for word in sentence:
+            counts[previous][word] += 1
+            previous = word
+
+    bigram = {}
+    for u in contexts:
+        row = {}
+        if has_sil:
+            row[sil_token] = float(p_sil)
+            if targets:
+                smoothed = np.array([counts[u][v] + k for v in targets], dtype=float)
+                lexical_probs = smoothed / smoothed.sum() * (1.0 - p_sil)
+                row.update({v: float(prob) for v, prob in zip(targets, lexical_probs)})
+        else:
+            smoothed = np.array([counts[u][v] + k for v in vocab], dtype=float)
+            probs = smoothed / smoothed.sum()
+            row.update({v: float(prob) for v, prob in zip(vocab, probs)})
+
+        # Keep each row normalized despite floating-point rounding.
+        total = sum(row.values())
+        bigram[u] = {v: prob / total for v, prob in row.items()}
+
+    return bigram
