@@ -182,8 +182,33 @@ class WordLoopDecoder:
         return self.lm_weight * np.log(max(self.bigram[u].get(v, 1e-12), 1e-12)) + self.word_penalty
 
     def _build(self):
-        raise NotImplementedError("TODO(d1): build the composite log transition matrix: within-word transitions + (word end -> word start) with lm_weight*log P(v|u) + word_penalty; start probabilities from P(v|<s>); mark entry transitions")
+        # raise NotImplementedError("TODO(d1): build the composite log transition matrix: within-word transitions + (word end -> word start) with lm_weight*log P(v|u) + word_penalty; start probabilities from P(v|<s>); mark entry transitions")
+        S = self.S
+        self.logA = np.full((S, S), -np.inf)        # log transition probabilities; -inf = impossible
+        self.log_start = np.full(S, -np.inf)        # log probability of starting in each state
+        self.entry = np.zeros((S, S), dtype=bool)   # True where i -> j enters a new word
 
+        first = {w: self.offsets[w] for w in self.vocab}                       # first state of each word
+        last = {w: self.offsets[w] + self.sizes[w] - 1 for w in self.vocab}    # last state of each word
+        self.final_states = np.array([last[w] for w in self.vocab])
+
+        log_stay = np.log(1 - np.exp(self.exit_logp))   # log P(stay in the last state) = log(1 - P(exit))
+
+        for u in self.vocab:
+            o, n = self.offsets[u], self.sizes[u]
+            # 1. inside word u: copy its own HMM transitions (zeros become -inf)
+            with np.errstate(divide="ignore"):
+                self.logA[o:o + n, o:o + n] = np.log(self.wm.models[u].transmat_)
+            # 2. the last state of u stays with probability 1 - P(exit) ...
+            self.logA[last[u], last[u]] += log_stay
+            # 3. ... or exits to the first state of every word v, paying the LM cost
+            for v in self.vocab:
+                self.logA[last[u], first[v]] = self.exit_logp + self._lm(u, v)
+                self.entry[last[u], first[v]] = True
+
+        # 4. a sentence can start at the first state of any word, with cost P(v | <s>)
+        for v in self.vocab:
+            self.log_start[first[v]] = self._lm("<s>", v)
     def emissions(self, feats: np.ndarray) -> np.ndarray:
         """(T, S) log b_s(o_t) concatenated over word models."""
         cols = [self.wm.models[w]._compute_log_likelihood(feats) for w in self.vocab]
