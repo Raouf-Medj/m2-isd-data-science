@@ -36,9 +36,12 @@ implement the scientific core of each stage (the `TODO(dX)` stubs), then benchma
 | Try it live | `python -m asr_demo.server`: say one digit to `digits/0-dtw-baseline` (provided), then to `digits/1-gmm` and `digits/2-hmm` (your `recognise_isolated`) |
 
 Each lab is planned for 2 h of work, which leaves time to get stuck and ask: the header of its notebook gives the
-timeline. The functions to implement are written except a few lines, each marked by a `TODO(dX)` that says what
-goes there. **Since 17 November the day-1 reference solution is in the package**: compare it with your own and
-build on it (your `d1` tag and rows stay as delivered).
+timeline. Each day-1 function is one `TODO(d1)` stub for its whole body; from day 2, the functions to implement
+are written except a few lines, each marked by a `TODO(dX)` that says what goes there. **Since 17 November the
+day-1 reference solution is on branch `solutions` of the starter repository, never on `main`**, so pulling `main`
+never replaces your code. Compare it with your own, or take a function you need (`git fetch course`, then `git diff HEAD course/solutions -- speech/gmm_hmm.py` to compare, or `git checkout course/solutions -- speech/gmm_hmm.py` to take one file; use
+`origin` instead of `course` if that is your name for the starter repository). Your `d1` tag and rows stay as
+delivered.
 
 **Afternoon: putting them together.**
 | | |
