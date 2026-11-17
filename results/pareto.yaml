@@ -1,6 +1,7 @@
 # Your main Pareto front for the current milestone (update at every tag)
-quality: {column: FILL_ME, direction: max}      # e.g. mAP / max, wer / min
-cost:    {column: lat_p90_ms, direction: min}   # e.g. lat_p90_ms, rtf, energy_j_per_img
-budget:  FILL_ME                                # your real-time constraint, same unit as cost
-claimed_front: []                               # model values you claim are Pareto-optimal
-chosen: FILL_ME                                 # configuration used in your pipeline
+# d1: isolated digits, GMM-HMM, task=gmm_isolated, cfg_split=standard, cfg_condition=clean
+quality: {column: acc, direction: max}          # isolated-digit accuracy
+cost:    {column: lat_ms, direction: min}       # latency per utterance (the provided d1 script logs no lat_p90_ms)
+budget:  50                                     # ms per utterance: push-to-talk answer must feel instant, leaving room for the rest of the pipeline
+claimed_front: [S2M2, S3M2, S5M2]               # non-dominated in (acc, lat_ms); S2M1, S3M1, S5M1, S8M1, S8M2 are dominated
+chosen: S5M2                                    # best accuracy (99.0 %) and robustness, 13.7 ms << budget (see DECISIONS.md D1)
