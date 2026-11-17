@@ -50,7 +50,29 @@ def bench_model(model_id, data, batch, device, fp16):
     - At batch 1 there is one latency per utterance; at batch > 1, one per batch (what a request in that batch
       waits). Compare throughput with rtf.
     """
-    raise NotImplementedError("TODO(d2): HF ASR pipeline at the requested batch size and dtype, warm-up, time every batch (sync GPU), return metrics (wer, rtf, latency percentiles, params, energy, memory) and hypotheses")
+    import torch
+    from transformers import pipeline
+    dtype = torch.float16 if (fp16 and device.startswith("cuda")) else torch.float32
+    asr = pipeline("automatic-speech-recognition", model=model_id, device=device, dtype=dtype)
+    if batch > 1 and getattr(asr, "tokenizer", None) is not None and asr.tokenizer.pad_token_id is None:
+        asr.tokenizer.pad_token_id = asr.model.config.eos_token_id  # Moonshine: no pad token, needed to batch
+    n_params = sum(p.numel() for p in asr.model.parameters())
+    inputs = [{"raw": d["audio"], "sampling_rate": d["sr"]} for d in data]
+    asr([dict(x) for x in inputs[:2]], batch_size=min(batch, 2))  # warm-up (the pipeline empties its inputs)
+    reset_peak_memory()
+    lats, hyps, res = [], [], {}
+    with energy_scope(res):
+        t_all = time.perf_counter()
+        for i in range(0, len(inputs), batch):
+            raise NotImplementedError("TODO(d2): time one call of asr on fresh copies of inputs[i:i + batch] (batch_size=batch): t0 = time.perf_counter(), call, cuda_sync(), append the elapsed seconds to lats; add each output's 'text' to hyps")
+        total = time.perf_counter() - t_all
+    audio_s = sum(len(d["audio"]) / d["sr"] for d in data)  # seconds of audio transcribed
+    raise NotImplementedError("TODO(d2): wer_value = wer(references, hyps) with the references d['text'] (speech.data.wer normalises both); rtf = processing time / audio time")
+    m = dict(wer=wer_value, rtf=rtf, n_params_M=n_params / 1e6,
+             energy_j_per_audio_min=(res["energy_j"] / audio_s * 60) if res.get("energy_j") is not None else None)
+    m.update(summarize_latencies(lats))  # lat_p50_ms, lat_p90_ms, ... from the list of seconds
+    m.update(peak_memory_mb())
+    return m, hyps
 
 
 def plot(path, out_png=Path("results/figures/asr_pareto.png")):

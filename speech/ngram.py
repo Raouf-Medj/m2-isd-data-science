@@ -29,12 +29,29 @@ class NGramLM:
         """Count n-grams of every order 1..N. Each sentence is padded with N-1 BOS and one EOS.
         self.counts[n][ngram_tuple] = count, self.context[n][history_tuple] = count (n = 1..N)."""
         self.vocab = list(vocab) + [EOS]  # predictable symbols
-        raise NotImplementedError("TODO(d1): count n-grams of every order 1..N on sentences padded with N-1 '<s>' and one '</s>'; fill self.counts[n] and self.context[n] (Counters keyed by tuples)")
+        self.counts = {n: Counter() for n in range(1, self.order + 1)}
+        self.context = {n: Counter() for n in range(1, self.order + 1)}
+        for s in sentences:
+            toks = [BOS] * (self.order - 1) + list(s) + [EOS]
+            for i in range(self.order - 1, len(toks)):  # i: position of every predicted token (words and EOS)
+                for n in range(1, self.order + 1):
+                    h = tuple(toks[i - n + 1:i])
+                    self.counts[n][h + (toks[i],)] += 1
+                    self.context[n][h] += 1
         return self
 
     def prob(self, word: str, history: list[str]) -> float:
         """P(word | last N-1 tokens of history). history may contain BOS tokens."""
-        raise NotImplementedError("TODO(d1): 'add-k' smooths the order-N estimate (count+k)/(context+k|V|); 'interpolated' mixes the add-k estimates of orders N..1 with self.lambdas (Jelinek-Mercer)")
+        V = len(self.vocab)
+        h_full = tuple(([BOS] * (self.order - 1) + list(history))[-(self.order - 1):]) if self.order > 1 else ()
+
+        def addk(n):
+            """Add-k estimate of order n (L1, "Smoothing")."""
+            h = h_full[len(h_full) - (n - 1):] if n > 1 else ()  # the last n-1 tokens of the history
+            return (self.counts[n][h + (word,)] + self.k) / (self.context[n][h] + self.k * V)
+        if self.smoothing == "add-k":
+            return addk(self.order)
+        return sum(lam * addk(n) for lam, n in zip(self.lambdas, range(self.order, 0, -1)))
 
     def sentence_logprob(self, sentence: list[str]) -> float:
         hist, lp = [], 0.0
@@ -45,7 +62,9 @@ class NGramLM:
 
     def perplexity(self, sentences: list[list[str]]) -> float:
         """exp(-(sum of log P) / number of predicted tokens), EOS included."""
-        raise NotImplementedError("TODO(d1): exp of minus the average log-probability per predicted token (each sentence predicts its words and EOS)")
+        total = sum(self.sentence_logprob(s) for s in sentences)  # sum of log P over all predicted tokens
+        n = sum(len(s) + 1 for s in sentences)
+        return math.exp(-total / n)
 
     @property
     def n_entries(self) -> int:

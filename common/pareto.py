@@ -20,7 +20,14 @@ def _to_minimisation(values: np.ndarray, directions: list[str]) -> np.ndarray:
 
 def pareto_mask_array(values: np.ndarray, directions: list[str]) -> np.ndarray:
     """True for non-dominated rows. O(n^2), fine for the few hundred configs of a course."""
-    raise NotImplementedError("TODO(d1): return a boolean mask of non-dominated rows (each objective 'min' or 'max'); keep exact duplicates; see test_pareto.py")
+    v = _to_minimisation(np.asarray(values), directions)  # every objective is now "lower is better"
+    n = v.shape[0]
+    keep = np.ones(n, dtype=bool)
+    for i in range(n):
+        dominated = np.all(v <= v[i], axis=1) & np.any(v < v[i], axis=1)
+        if dominated.any():
+            keep[i] = False
+    return keep
 
 
 def pareto_mask(df, objectives: dict[str, str]) -> np.ndarray:

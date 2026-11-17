@@ -12,7 +12,7 @@ budget, and defending each choice at the oral exam. Groups do not train neural m
 
 | Day | Lecture | Students implement (`TODO(dX)` stubs) | Benchmarks (`results/results.jsonl` rows) |
 |---|---|---|---|
-| d1 | L1, L2 | `common/pareto.py::pareto_mask_array`; `speech/ngram.py::NGramLM`; `speech/gmm_hmm.py`: `recognise_isolated`, `WordLoopDecoder._build`, `decode_emissions`, `train_bigram` | `gmm_isolated`, `ngram_lm`, `gmm_connected`, `gmm_beam` |
+| d1 | L1, L2 | reference solution provided since 17 Nov: `common/pareto.py::pareto_mask_array`; `speech/ngram.py::NGramLM`; `speech/gmm_hmm.py`: `recognise_isolated`, `WordLoopDecoder._build`, `decode_emissions`, `train_bigram` | `gmm_isolated`, `ngram_lm`, `gmm_connected`, `gmm_beam` |
 | d2 | L3, L4 | `speech/asr_benchmark.py::bench_model`; `speech/ctc_lm.py`: `greedy_ctc`, `sweep` | `asr`, `ctc_decoding` |
 | d3 | L5, L6 | `speech/streaming_sim.py::simulate_streaming`; stretch: `speech/streaming_live.py` | `asr_streaming` |
 
@@ -55,8 +55,10 @@ Without uv: `python -m venv .venv`, activate it, `pip install -r requirements.tx
 day-2 steps for `pyctcdecode` and `kenlm`).
 
 ## Conventions in the code
-- A stub is `raise NotImplementedError("TODO(dX): <what to do>")`. Replace the `raise` by an implementation; keep
-  the signature and the docstring's contract. Everything that is not a stub is provided and tested.
+- A stub is `raise NotImplementedError("TODO(dX): <what to do>")`. On days 1 and 2 the functions are written
+  except a few lines: each `raise` sits where its lines go, and its message says what to write (replace it, keep
+  the indentation; a function can have several). On day 3 the `raise` stands for the whole body. Keep the
+  signature and the docstring's contract. Everything that is not a stub is provided and tested.
 - The docstring and the lecture slide named on the lab slide give the equation. The public tests define
   "implemented", not "good": the benchmarks decide what is good.
 - Symbols follow the lectures' notation pages. Code names: `lm_weight` = λ, `word_penalty` = β (negative = a

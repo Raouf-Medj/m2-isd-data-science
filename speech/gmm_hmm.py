@@ -144,7 +144,9 @@ def train_word_models(train: dict[str, list[np.ndarray]], n_states: int = 5, n_m
 
 
 def recognise_isolated(wm: WordModels, feats: np.ndarray, vocab: list[str]) -> str:
-    raise NotImplementedError("TODO(d1): return the word whose model gives the highest log-likelihood")
+    """The word w of vocab whose HMM gives the highest log-likelihood log p(feats | theta_w) (L1, isolated words)."""
+    scores = {w: wm.models[w].score(feats) for w in vocab}
+    return max(scores, key=scores.get)  # the key with the highest score
 
 
 # --------------------------------------------------------------------------- #
@@ -199,7 +201,26 @@ class WordLoopDecoder:
         return self.lm_weight * np.log(max(self.bigram[u].get(v, 1e-12), 1e-12)) + self.word_penalty
 
     def _build(self):
-        raise NotImplementedError("TODO(d1): build the composite log transition matrix: within-word transitions + (word end -> word start) with lm_weight*log P(v|u) + word_penalty; start probabilities from P(v|<s>); mark entry transitions")
+        """Fill self.logA (S x S), self.start (S) and self.is_entry (S x S, bool) (L2, "_build in the code").
+        States of word w: self.offsets[w], ..., self.offsets[w] + self.sizes[w] - 1 (first, ..., last)."""
+        S = self.S
+        logA = np.full((S, S), -np.inf)               # log A~: -inf = impossible transition
+        self.start = np.full(S, -np.inf)              # log pi~
+        self.is_entry = np.zeros((S, S), dtype=bool)  # True where a transition starts a new word
+        exit_lp = np.log1p(-np.exp(self.exit_logp))   # log(1 - phi): leave the last state of a word
+        for u in self.vocab:
+            ou, nu = self.offsets[u], self.sizes[u]
+            first, last = ou, ou + nu - 1
+            with np.errstate(divide="ignore"):
+                lA = np.log(self.wm.models[u].transmat_)  # word u's own (nu x nu) log transitions; 0 -> -inf
+            lA[-1, -1] = self.exit_logp  # final-state self-loop log(phi); the rest of the mass exits the word
+            logA[ou:ou + nu, ou:ou + nu] = lA
+            for v in self.vocab:
+                ov = self.offsets[v]  # first state of the next word v
+                logA[last, ov] = exit_lp + self._lm(u, v)
+                self.is_entry[last, ov] = True
+            self.start[first] = self._lm("<s>", u)
+        self.logA = logA
 
     def emissions(self, feats: np.ndarray) -> np.ndarray:
         """(T, S) log b_s(o_t) concatenated over word models."""
@@ -214,7 +235,26 @@ class WordLoopDecoder:
         Pass delta through self.prune() at every frame (t = 0 included): the beam options then work, and the
         default (no beam) is exact Viterbi. If every word-final state was pruned at the last frame, end in the
         best surviving state instead."""
-        raise NotImplementedError("TODO(d1): log-domain Viterbi over the composite HMM (delta through self.prune at every frame), end in a word-final state, backtrack, cut words at entry transitions, drop silence")
+        T, S = B.shape
+        delta = self.prune(self.start + B[0])  # delta_1(s) = log pi~(s) + log b_s(x_1)
+        bp = np.zeros((T, S), dtype=np.int32)  # back-pointers psi_t(s): best predecessor of s at frame t
+        for t in range(1, T):
+            cand = delta[:, None] + self.logA  # (from, to)
+            bp[t] = np.argmax(cand, axis=0)
+            delta = self.prune(cand[bp[t], np.arange(S)] + B[t])
+        # end in the final state of some word (or, if a beam pruned them all, in the best surviving state)
+        finals = self.finals
+        s = finals[np.argmax(delta[finals])] if np.isfinite(delta[finals]).any() else int(np.argmax(delta))
+        path = [s]
+        for t in range(T - 1, 0, -1):
+            s = bp[t, s]
+            path.append(s)
+        path = path[::-1]
+        words = [self.word_of_state[path[0]]]  # a new word starts at every entry transition (L2, "From the best state path to words")
+        for a, b in zip(path[:-1], path[1:]):
+            if self.is_entry[a, b]:
+                words.append(self.word_of_state[b])
+        return [w for w in words if w not in drop]
 
 
 # --------------------------------------------------------------------------- #
@@ -233,4 +273,22 @@ def train_bigram(sentences: list[list[str]], vocab: list[str], k: float = 0.1,
          c(v) = sum_u c(u, v) (smoothed unigram: a silence forgets the history), and
          P(sil | sil) = 1e-6.
     """
-    raise NotImplementedError("TODO(d1): add-k bigram P(v|u) with <s>; silence handled as documented; every row must sum to 1")
+    counts = {u: {v: k for v in vocab} for u in ["<s>"] + vocab}  # add-k: every count starts at k
+    for s in sentences:
+        for u, v in zip(["<s>"] + s[:-1], s):
+            counts[u][v] += 1
+    lm = {}
+    for u, row in counts.items():
+        z = sum(row.values())
+        lm[u] = {v: c / z for v, c in row.items()}
+    if sil_token is not None:  # provided: the silence word (step 2 of the docstring, L2 "The bigram LM, with a silence word")
+        # silence can appear between any two words and does not change the word history
+        # (approximation: sil -> v uses the unigram of v)
+        uni = {v: sum(counts[u][v] for u in counts) for v in vocab}
+        z = sum(uni.values())
+        for u in lm:
+            lm[u] = {v: (1 - p_sil) * p for v, p in lm[u].items()}
+            lm[u][sil_token] = p_sil
+        lm[sil_token] = {v: (1 - 1e-6) * uni[v] / z for v in vocab}
+        lm[sil_token][sil_token] = 1e-6
+    return lm

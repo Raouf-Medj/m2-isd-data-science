@@ -34,7 +34,14 @@ from common.bench import default_device
 
 # --------------------------------------------------------------------------- #
 def greedy_ctc(logprobs: np.ndarray, labels: list[str], blank: int = 0) -> str:
-    raise NotImplementedError("TODO(d2): argmax per frame, collapse repeats, drop blanks, '|' = space")
+    """Greedy CTC decoding (L3, "Greedy decoding"): the best label of every frame, then the collapse B.
+    logprobs: (T, number of labels); labels[i] is the token of id i; blank: the id of the blank."""
+    raise NotImplementedError("TODO(d2): best = one label id per frame: the argmax of logprobs over its last axis (the labels), shape (T,)")
+    out, prev = [], -1
+    for k in best:
+        raise NotImplementedError("TODO(d2): collapse: keep labels[k] (append it to out) only if k differs from the previous id prev and is not the blank")
+        prev = k
+    return "".join(out).replace("|", " ").strip()  # the word delimiter | becomes a space
 
 
 def labels_from_processor(processor) -> tuple[list[str], int]:
@@ -94,7 +101,23 @@ def sweep(logprobs_list, refs, labels, blank, arpa, alphas, betas, beams, unigra
     Keys: decoder, alpha, beta, beam, wer (jiwer.wer over all utterances; an empty hypothesis counts as "<e>"),
     ms_per_utt (decoding time per utterance). The decoder names are used by the tests and the plots: keep them.
     unigrams: unused (kept for compatibility)."""
-    raise NotImplementedError("TODO(d2): rows for greedy, beam without LM (each beam width) and beam + KenLM (alpha x beta x beam): WER and ms per utterance")
+    import jiwer
+    rows = []
+    # the first row, as an example: time the decoding of every utterance, then one dict per configuration
+    t0 = time.perf_counter()
+    hyp = [greedy_ctc(lp, labels, blank) for lp in logprobs_list]
+    rows.append(dict(decoder="greedy (acoustic only)", alpha=0, beta=0, beam=1, wer=jiwer.wer(refs, [h or "<e>" for h in hyp]),
+                     ms_per_utt=(time.perf_counter() - t0) / len(refs) * 1000))
+    for beam in beams:
+        dec = make_decoder(labels, None, 0.0, 0.0)  # prefix beam search without LM (pyctcdecode)
+        raise NotImplementedError("TODO(d2): same as the greedy row with hyp = [dec.decode(lp, beam_width=beam) for lp in logprobs_list]: one row decoder='beam, no LM', alpha=0, beta=0, beam=beam")
+    if arpa:
+        for a in alphas:
+            for b in betas:
+                dec = make_decoder(labels, arpa, a, b)  # beam search with the n-gram LM, weight a, word bonus b
+                for beam in beams:
+                    raise NotImplementedError("TODO(d2): as above: one row decoder='beam + n-gram', alpha=a, beta=b, beam=beam")
+    return rows
 
 
 # --------------------------------------------------------------------------- #
