@@ -56,7 +56,54 @@ def simulate_streaming(audio: np.ndarray, sr: int, transcribe: Callable[[np.ndar
       behind          mean_compute_s > step_s (the model cannot keep up with real time);
       finish_delay_s  time of the last commit minus the audio duration (>= 0).
     """
-    raise NotImplementedError("TODO(d3): real-time clock: re-transcribe the buffer every step_s or when the model is free; LocalAgreement-n commits (never retract); flush at max_buffer_s; return the documented dict")
+    duration = len(audio) / sr
+    wants_offset = getattr(transcribe, "wants_offset", False)
+    committed: list[str] = []        # every committed word of the stream, in order (never retracted)
+    commit_times: list[float] = []   # when each word was committed
+    computes: list[float] = []       # compute time of every transcribe call
+    buf_start = 0.0                  # where the current buffer starts in `audio` (seconds)
+    n_done = 0                       # words of the current buffer already committed
+    history: list[list[str]] = []    # the last n_agree hypotheses of the current buffer
+
+    def run(t_end: float) -> tuple[list[str], float]:
+        """Transcribe the buffer audio[buf_start, t_end]; return its words and the compute time."""
+        buf = audio[int(round(buf_start * sr)):int(round(t_end * sr))]
+        t0 = time.perf_counter()
+        text = transcribe(buf, buf_start) if wants_offset else transcribe(buf)
+        compute = cost_model(len(buf) / sr) if cost_model is not None else time.perf_counter() - t0
+        computes.append(compute)
+        return text.lower().split(), compute
+
+    def commit(words: list[str], at: float) -> None:
+        committed.extend(words)
+        commit_times.extend([at] * len(words))
+
+    t = step_s     # clock: an update starts at time t and sees the audio received up to t
+    free = 0.0     # time at which the model has finished its last call
+    while t < duration:
+        hyp, compute = run(t)
+        free = t + compute                       # the hypothesis is known only once the call is over
+        history = (history + [hyp])[-n_agree:]
+        if len(history) == n_agree:              # LocalAgreement-n on the words after the committed ones
+            agreed = history[0][n_done:]
+            for h in history[1:]:
+                agreed = _common_prefix(agreed, h[n_done:])
+            commit(agreed, free)
+            n_done += len(agreed)
+        if t - buf_start >= max_buffer_s:        # flush: keep the last hypothesis, restart the buffer at t
+            commit(hyp[n_done:], free)
+            buf_start, n_done, history = t, 0, []
+        t = max(t + step_s, free)                # next update: step_s later, or when the model is free if slower
+
+    # end of the audio (button released): once the model is free, transcribe the rest and commit what is left
+    hyp, compute = run(duration)
+    free = max(duration, free) + compute         # the final text is known here (last commit, even if no new word)
+    commit(hyp[n_done:], free)
+
+    mean_compute = float(np.mean(computes))
+    return dict(text=" ".join(committed), words=committed, commit_times=np.array(commit_times, dtype=float),
+                updates=len(computes), mean_compute_s=mean_compute, behind=mean_compute > step_s,
+                finish_delay_s=free - duration)
 
 
 def commit_lags(committed: list[str], commit_times: np.ndarray, ref_words: list[str], ref_ends: np.ndarray):
